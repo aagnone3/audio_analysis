@@ -17,7 +17,8 @@ Clone and run! This project has not matured enough to have a formal installation
 
 # Visualization Snapshot
 
-![alt text](https://github.com/aagnone3/audio_analysis/tree/master/res/images/viz_screenshot.png "Visualization")
+![Visualization Screenshot]
+(https://raw.githubusercontent.com/aagnone3/audio_analysis/master/res/images/viz_screenshot.png)
 
 # API Reference
 
