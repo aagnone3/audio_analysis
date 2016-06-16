@@ -6,6 +6,7 @@ Created on Wed Apr 06 16:55:34 2016
 """
 
 import csv
+import glob
 import logging
 import os
 import pickle
@@ -20,47 +21,23 @@ from learning.classification import AudioClassifier, GMMAudioClassifier
 from common import environment
 
 # load feature masks and their names
-with open("features/feature_masks.pkl", "rb") as fh:
-    FEATURE_MASK_NAMES = pickle.load(fh)
-    FEATURE_MASKS = pickle.load(fh)
+FEATURE_MASKS = np.array([False, False, False, False, False, False, False, False, False,
+                          False, False, False, False, False, False, False, False, False,
+                          True,  True,  True,  True,  True,  True,  True,  True])
+FEATURE_MASK_NAMES = ["Only 7 MFCC"]
 
-# set up directories and paths
-DATA_DIR = os.sep.join(['res', 'data'])
-# training data directories
-TRAIN_DATA_DIR = os.sep.join([DATA_DIR, 'Train'])
-TRAIN_MUSIC_DIR = os.sep.join([TRAIN_DATA_DIR, 'Music'])
-TRAIN_SPEECH_DIR = os.sep.join([TRAIN_DATA_DIR, 'Speech'])
-TRAIN_NOISE_DIR = os.sep.join([TRAIN_DATA_DIR, 'Noise'])
-TRAIN_SILENCE_DIR = os.sep.join([TRAIN_DATA_DIR, 'Silence'])
-TRAINING_DIRS = [
-    TRAIN_MUSIC_DIR,
-    TRAIN_SPEECH_DIR,
-    TRAIN_NOISE_DIR,
-    TRAIN_SILENCE_DIR
-]
-# testing data directories
-TEST_DATA_DIR = os.sep.join([DATA_DIR, 'Test'])
-TEST_MUSIC_DIR = os.sep.join([TEST_DATA_DIR, 'Music'])
-TEST_SPEECH_DIR = os.sep.join([TEST_DATA_DIR, 'Speech'])
-TEST_NOISE_DIR = os.sep.join([TEST_DATA_DIR, 'Noise'])
-TEST_SILENCE_DIR = os.sep.join([TEST_DATA_DIR, 'Silence'])
-TESTING_DIRS = [
-    TEST_MUSIC_DIR,
-    TEST_SPEECH_DIR,
-    TEST_NOISE_DIR,
-    TEST_SILENCE_DIR
-]
+# data directories and paths
+DATA_DIR = os.sep.join(['res', 'data', 'speaker_small'])
+TRAIN_DATA_DIR = os.sep.join([DATA_DIR, 'train'])
+TEST_DATA_DIR = os.sep.join([DATA_DIR, 'test'])
 
 # constants
-NUM_MUSIC_TRAIN = len(environment.files_with_extension(TRAIN_MUSIC_DIR, '.wav'))
-NUM_SPEECH_TRAIN = len(environment.files_with_extension(TRAIN_SPEECH_DIR, '.wav'))
-NUM_NOISE_TRAIN = len(environment.files_with_extension(TRAIN_NOISE_DIR, '.wav'))
-NUM_SILENCE_TRAIN = len(environment.files_with_extension(TRAIN_SILENCE_DIR, '.wav'))
-
-NUM_MUSIC_TEST = len(environment.files_with_extension(TEST_MUSIC_DIR, '.wav'))
-NUM_SPEECH_TEST = len(environment.files_with_extension(TEST_SPEECH_DIR, '.wav'))
-NUM_NOISE_TEST = len(environment.files_with_extension(TEST_NOISE_DIR, '.wav'))
-NUM_SILENCE_TEST = len(environment.files_with_extension(TEST_SILENCE_DIR, '.wav'))
+training_files = glob.glob(os.sep.join((TRAIN_DATA_DIR, "*.wav")))
+train_prefixes = [f[:f.find("_")] for f in training_files]
+train_file_counts = [train_prefixes.count(p) for p in np.unique(train_prefixes)]
+testing_files = glob.glob(os.sep.join((TEST_DATA_DIR, "*.wav")))
+test_prefixes = [f[:f.find("_")] for f in testing_files]
+test_file_counts = [test_prefixes.count(p) for p in np.unique(test_prefixes)]
 
 
 def main():
@@ -68,19 +45,18 @@ def main():
                         level=logging.INFO,
                         format='%(asctime)s\t\t%(message)s')
     logging.info('Hello logging world')
-    print(('Training with {} Music, {} Noise, {} Speech, and {} Silence file(s).'
-           .format(NUM_MUSIC_TRAIN, NUM_NOISE_TRAIN, NUM_SPEECH_TRAIN, NUM_SILENCE_TRAIN)))
+    print("Training file counts {}".format(train_file_counts))
 
     keyword = 'Test'
     paths = {
-        'model': os.sep.join(['res', 'models', 'svm_temp']),
-        'temp_model': os.sep.join(['res', 'models', 'hmm_temp']),
+        'model': os.sep.join(['res', 'models', 'gnb_speaker_recognition']),
+        'train_results': os.sep.join(['res', 'results', 'gnb_speaker_recognition_train.csv']),
+        'test_results': os.sep.join(['res', 'results', 'gnb_speaker_recognition_test.csv']),
         'train_data': os.sep.join(['res', 'features', '']) + 'TrainData_' + keyword + '.pkl',
         'test_data': os.sep.join(['res', 'features', '']) + 'TestData_' + keyword + '.pkl'
     }
-    print(('\n'.join([n for n in 5 * ''])))
-    print(('Testing with {0} Music, {1} Noise, {2} Speech, and {3} Silence file(s).'
-           .format(NUM_MUSIC_TEST, NUM_NOISE_TEST, NUM_SPEECH_TEST, NUM_SILENCE_TEST)))
+    environment.print_lines(5)
+    print("Testing file counts {}".format(test_file_counts))
 
     # learner = mixture.GMM(n_components=len(TRAINING_DIRS))
     learner = GaussianNB()
@@ -97,13 +73,13 @@ def modified_train_test(paths, learner):
     """
     data = pd.DataFrame([])
     for i, mask in enumerate(FEATURE_MASKS):
-        AudioClassifier(learner).train_model(TRAINING_DIRS, paths['temp_model'],
-                                             from_file=paths['train_data'],
+        AudioClassifier(learner).train_model(TRAIN_DATA_DIR, paths['model'],
+                                             load_features_from=paths['train_data'],
                                              feature_mask=mask)
-        [y_predict, y_actual] = AudioClassifier.test_model(classifier=AudioClassifier.load_model(paths['temp_model']),
-                                                           from_file=paths['test_data'],
+        [y_predict, y_actual] = AudioClassifier.test_model(classifier=AudioClassifier.load_model(paths['model']),
+                                                           load_features_from=paths['test_data'],
                                                            feature_mask=mask)
-        results, columns = analyze_test_results(y_predict, y_actual, paths['temp_model'])
+        results, columns = analyze_test_results(y_predict, y_actual, paths['results'])
         percents = np.reshape(results['percents'], (1, -1))
         data = data.append(pd.DataFrame(percents))
     data.columns = columns
@@ -120,15 +96,15 @@ def fresh_train_test(paths, learner):
     :return: None
     """
     classifier = AudioClassifier(learner)
-    classifier.train_model(TRAINING_DIRS, paths['model'],
-                           feature_mask=FEATURE_MASKS[0],
-                           to_file=paths['train_data'])
-
+    [y_predict, y_actual] = classifier.train_model(TRAIN_DATA_DIR, paths['model'],
+                                                   feature_mask=FEATURE_MASKS[0],
+                                                   save_features_to=paths['train_data'])
+    analyze_test_results(y_predict, y_actual, paths['train_results'])
     [y_predict, y_actual] = AudioClassifier.test_model(classifier=AudioClassifier.load_model(paths['model']),
-                                                       test_files_directory=TESTING_DIRS,
-                                                       to_file=paths['test_data'],
+                                                       test_files_directory=TEST_DATA_DIR,
+                                                       save_features_to=paths['test_data'],
                                                        feature_mask=FEATURE_MASKS[0])
-    analyze_test_results(y_predict, y_actual, paths['model'])
+    analyze_test_results(y_predict, y_actual, paths['test_results'])
 
 
 def log_test_results(file_name, results, fieldnames):
@@ -145,12 +121,12 @@ def log_test_results(file_name, results, fieldnames):
         writer.writerows(result for result in results)
 
 
-def analyze_test_results(y_predict, y_actual, path_to_model):
+def analyze_test_results(y_predict, y_actual, results_file_name):
     """
     Prints a simple analysis of test results to the console
     :param y_predict: predicted class labels
     :param y_actual: actual class labels
-    :param path_to_model: path to use for saving off results
+    :param results_file_name: path to use for saving off results
     :return: None
     """
     columns = ['Overall Accuracy (%)']
@@ -164,7 +140,6 @@ def analyze_test_results(y_predict, y_actual, path_to_model):
         metrics['percents'].append(100.0 * np.mean(y_predict[y_actual == label] == y_actual[y_actual == label]))
         metrics['partials'].append(np.sum(y_predict[y_actual == label] == y_actual[y_actual == label]))
         metrics['wholes'].append(len(y_actual[y_actual == label]))
-    results_file_name = path_to_model + '_TestResults.csv'
     with open(results_file_name, 'w') as csv_file:
         writer = csv.writer(csv_file)
         for i in range(y_predict.shape[0]):

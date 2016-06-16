@@ -14,8 +14,9 @@ class AudioClassifier:
         self.feature_names = None
         self.class_names = None
         self.train_features = None
-        self.train_labels = None
+        self.frame_labels = None
         self.train_predictions = None
+        self.sample_indices = None
         self.inner_learner = learner
 
     def extract_features(self, directories, feature_mask):
@@ -26,65 +27,82 @@ class AudioClassifier:
         :param feature_mask: boolean mask for feature selection
         :return: None
         """
-        [features, class_names, _, self.train_labels] = fe.extract_from_dirs(directories, feature_mask)
-        self.train_features = fe.normalize(features)
-        self.class_names = np.array([d.split(os.sep)[-1] for d in class_names])
+        [feature_matrices, self.class_names, _, self.frame_labels,
+         self.sample_indices] = fe.extract_from_dir(directories, feature_mask)
+        self.train_features = fe.normalize(feature_matrices)
         self.feature_names = fe.FEATURE_NAMES[feature_mask]
 
-    def train_model(self, directories, new_model_name, from_file=None, feature_mask=None, to_file=None):
+    def train_model(self, directories, new_model_name, load_features_from=None,
+                    feature_mask=None, save_features_to=None):
         """
         Trains the learner, using the files specified in the directories. Alternatively, a file with existing features
         can be provided for training.
         :param directories: directories of audio files to train on
         :param new_model_name: model name to use for pickling
-        :param from_file: path to existing features to train with
+        :param load_features_from: path to existing features to train with
         :param feature_mask: boolean mask for feature selection
-        :param to_file: path to save extracted features to
+        :param save_features_to: path to save extracted features to
         :return: None
         """
         # Obtain features through extraction or the given file
-        if from_file is None:
+        if load_features_from is None:
             print('Extracting features')
             self.extract_features(directories, feature_mask)
-            if to_file is not None:
-                fe.save_data(to_file, self.train_features, self.feature_names, self.train_labels)
+            if save_features_to is not None:
+                fe.save_data(save_features_to, self.train_features, self.feature_names, self.frame_labels)
         else:
             # Only include features according to mask
             print('Loading features')
-            [self.train_features, self.train_labels] = fe.load_data(from_file, feature_mask)
+            [self.train_features, self.frame_labels] = fe.load_data(load_features_from, feature_mask)
         # Fit the training data
         print('Fitting model')
-        self.inner_learner.fit(self.train_features, self.train_labels)
+        self.inner_learner.fit(self.train_features, self.frame_labels)
         # Get and report the training accuracy of the classifier
-        self.train_predictions = self.inner_learner.predict(self.train_features)
-        print('Training accuracy: {}'.format(100 * np.mean(self.train_labels == self.train_predictions)))
+        self.train_predictions = []
+        labels = []
+        for i in range(len(self.sample_indices)-1):
+            beg = self.sample_indices[i]
+            end = self.sample_indices[i+1]
+            frame_predictions = self.inner_learner.predict(self.train_features[beg:end, :])
+            self.train_predictions.append(stats.mode(frame_predictions).mode[0])
+            labels.append(self.frame_labels[beg])
+        print('Training accuracy: {}'.format(100 * np.mean(labels == self.train_predictions)))
         # Save the training data to a pickle
         self.save_model(new_model_name, self)
+        return np.array(self.train_predictions), np.array(labels)
 
     @staticmethod
-    def test_model(classifier, test_files_directory=None, to_file=None, from_file=None, feature_mask=None):
+    def test_model(classifier, test_files_directory=None, save_features_to=None,
+                   load_features_from=None, feature_mask=None):
         """
         Test the generalization accuracy of the learner, using the test files in the specified directory.
         Alternatively, a path to existing extracted features can be provided for use in the testing.
         :param classifier: classifier to use for generalization testing
         :param test_files_directory: directory where test files are located
-        :param to_file: path to save extract features to
-        :param from_file: path to existing extracted features
+        :param save_features_to: path to save extract features to
+        :param load_features_from: path to existing extracted features
         :param feature_mask: boolean mask for feature selection
         :return: 2-tuple of (predicted class labels, actual class labels)
         """
         if test_files_directory is not None:
-            [test_features, _, _, y_test] = fe.extract_from_dirs(test_files_directory, feature_mask)
+            [test_features, _, _, frame_labels, sample_indices] = fe.extract_from_dir(test_files_directory, feature_mask)
             test_features = np.array(test_features)
-            if to_file is not None:
-                fe.save_data(to_file, test_features, classifier.feature_names, y_test)
-        elif from_file is not None:
-            [test_features, y_test] = fe.load_data(from_file, feature_mask)
+            if save_features_to is not None:
+                fe.save_data(save_features_to, test_features, classifier.feature_names, frame_labels)
+        elif load_features_from is not None:
+            [test_features, frame_labels] = fe.load_data(load_features_from, feature_mask)
         else:
             raise Exception('Did not pass a test file directory or feature matrix to test_model()')
 
-        y_predict = classifier.predict(test_features)
-        return np.array(y_predict), np.array(y_test)
+        predictions = []
+        labels = []
+        for i in range(len(sample_indices) - 1):
+            beg = sample_indices[i]
+            end = sample_indices[i+1]
+            frame_predictions = classifier.predict(test_features[beg:end, :])
+            predictions.append(stats.mode(frame_predictions).mode[0])
+            labels.append(frame_labels[i])
+        return np.array(predictions), np.array(labels)
 
     def predict(self, x):
         """
@@ -152,31 +170,31 @@ class GMMAudioClassifier(AudioClassifier):
         """
         return super().classify_file(classifier, filename, feature_mask)[0]
 
-    def train_model(self, directories, new_model_name, from_file=None, feature_mask=None, to_file=None):
+    def train_model(self, directories, new_model_name, load_features_from=None, feature_mask=None, save_features_to=None):
         """
         Trains the learner, using the files specified in the directories. Alternatively, a file with existing features
         can be provided for training.
         :param directories: directories of audio files to train on
         :param new_model_name: model name to use for pickling
-        :param from_file: path to existing features to train with
+        :param load_features_from: path to existing features to train with
         :param feature_mask: boolean mask for feature selection
-        :param to_file: path to save extracted features to
+        :param save_features_to: path to save extracted features to
         :return: None
         """
         # Obtain features through extraction or the given file
-        if from_file is None:
+        if load_features_from is None:
             print('Extracting features')
             self.extract_features(directories, feature_mask)
-            if to_file is not None:
-                fe.save_data(to_file, self.train_features, self.feature_names, self.train_labels)
+            if save_features_to is not None:
+                fe.save_data(save_features_to, self.train_features, self.feature_names, self.frame_labels)
         else:
             # Only include features according to mask
             print('Loading features')
-            [self.train_features, self.train_labels] = fe.load_data(from_file, feature_mask)
+            [self.train_features, self.frame_labels] = fe.load_data(load_features_from, feature_mask)
         print('Fitting model')
         # Set initial means for the mixture model
         self.inner_learner.means_ = np.array(
-            [self.train_features[self.train_labels == self.class_names[i]].mean(axis=0)
+            [self.train_features[self.frame_labels == self.class_names[i]].mean(axis=0)
              for i in range(self.inner_learner.n_components)])
         # Fit the other parameters of the mixture model using EM
         self.inner_learner.fit(self.train_features)
