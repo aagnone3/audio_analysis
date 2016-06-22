@@ -1,20 +1,14 @@
-# Credit to pyAudioAnalysis for base code which led to the creation of this module.
-# https://github.com/tyiannak/pyAudioAnalysis
-
 # python imports
+from __future__ import print_function
 import os
 import glob
 # third-party application imports
+from essentia.standard import Centroid, Flux, LPC, Windowing, ZeroCrossingRate, Energy, Entropy, RollOff, \
+    SpectralPeaks, MFCC, FFT, Mean, EnergyBandRatio
 import numpy as np
 import pandas as pd
-from audiolazy.lazy_lpc import lpc
 # application imports
-from common.audio import read_audio_file
-from common.environment import files_with_extension
-from .cepstral_domain import *
-from .spectral_domain import *
-from .time_domain import *
-
+from common.audio import read_audio_file, EPSILON
 
 # static global members
 WINDOW_SPECS = {
@@ -26,23 +20,14 @@ WINDOW_SPECS = {
 FEATURE_NAMES = np.array([
     'Short-Time ZCR',
     'Short-Time Energy',
-    'Short-Time Energy Entropy',
     'Formant 1',
     'Formant 2',
     'Formant 3',
     'Formant 4',
-    'LSF 1',
-    'LSF 2',
-    'LSF 3',
-    'LSF 4',
-    'LSF 5',
-    'LSF 6',
     'Spectral Centroid',
-    'Spectral Spread',
     'Spectral Entropy',
     'Spectral Flux',
     'Spectral Roll-Off',
-    'MFCC Coefficient 1',
     'MFCC Coefficient 2',
     'MFCC Coefficient 3',
     'MFCC Coefficient 4',
@@ -56,6 +41,23 @@ FEATURE_NAMES = np.array([
     'MFCC Coefficient 12',
     'MFCC Coefficient 13',
 ])
+N_FFT = 1024
+N_FORMANT = 4
+N_LPC = 6
+N_MFCC = 13
+FS = 16000
+# obtain pointers to essentia feature extraction functions
+fft = FFT(size=N_FFT)
+entropy = Entropy()
+# lpc = LPC(order=N_LPC, sampleRate=FS)
+formant_frequencies = SpectralPeaks(maxPeaks=N_FORMANT, sampleRate=FS)
+energy = EnergyBandRatio(startFrequency=4000, stopFrequency=8000)
+centroid = Centroid()
+zcr = ZeroCrossingRate()
+flux = Flux()
+roll_off = RollOff(sampleRate=FS)
+mfcc = MFCC(sampleRate=FS, inputSize=N_FFT, numberBands=40, numberCoefficients=N_MFCC,
+            lowFrequencyBound=0, highFrequencyBound=8000)
 
 
 def load_data(model_name, column_indexes):
@@ -68,7 +70,6 @@ def load_data(model_name, column_indexes):
     """
     all_data = pd.read_pickle(model_name)
     features = all_data.iloc[:, :-1].as_matrix()
-    features = normalize(features)
     features = features[:, column_indexes]
     labels = all_data.iloc[:, -1].as_matrix()
     return features, labels
@@ -92,12 +93,13 @@ def save_data(path, features, feature_names, labels):
 def normalize(features):
     """
     Normalizes a feature matrix to 0-mean and 1-std.
-    :param features: list of feature matrices (each one of them is a numpy matrix)
+    :param features: raw numpy feature matrix
     :return: normalized numpy feature matrix
     """
-    mean_data = np.mean(features, axis=0)
-    std_data = np.std(features, axis=0)
-    return np.array([(instance - mean_data) / std_data for instance in features])
+    mean_data = np.mean(features, axis=0) + EPSILON
+    std_data = np.std(features, axis=0) + EPSILON
+    res = (features - mean_data) / std_data
+    return res
 
 
 def st_feature_extraction(signal, fs, feature_mask):
@@ -113,9 +115,9 @@ def st_feature_extraction(signal, fs, feature_mask):
     window_step = int(round(WINDOW_SPECS['st_step'] * fs))
 
     # Signal normalization
-    signal = np.double(signal) / (2.0 ** 15)
+    signal /= (2.0 ** 15)
     dc_value = signal.mean()
-    max_value = (np.abs(signal)).max()
+    max_value = abs(signal).max()
     if max_value > 0:
         signal = (signal - dc_value) / max_value
 
@@ -123,15 +125,11 @@ def st_feature_extraction(signal, fs, feature_mask):
     signal_length = len(signal)
     cur_pos = 0
     frame_count = 0
-    n_fft = int(window_size / 2)
 
     # compute the filter banks used for MFCC computation
-    [filter_bank, _] = mfcc_init_filter_banks(fs, n_fft)
-    n_mfcc = 13
-    n_frames = int(signal_length/ window_step)
+    n_frames = int(signal_length / window_step)
     n_features = len(feature_mask[feature_mask])
     st_features = np.empty(shape=(n_frames, n_features), dtype=np.float64)
-    previous_fft = []
 
     # frame-by-frame processing of the signal
     while cur_pos + window_size - 1 < signal_length:
@@ -140,42 +138,30 @@ def st_feature_extraction(signal, fs, feature_mask):
         # update window position
         cur_pos += window_step
         # normalized FFT magnitude
-        current_fft = abs(fft(x))[:n_fft] / n_fft
-        # LPC
-        [lpc_a, _] = lpc.autocor(x, 16)
-        lpc_a = list(lpc_a.values())
-        # keep previous FFT magnitude for spectral flux calculation
-        if frame_count == 0:
-            previous_fft = current_fft
-        [centroid, spread] = spectral_centroid_and_spread(current_fft, fs)
-        if np.isnan(centroid):
-            centroid = 0.0
-        if np.isnan(spread):
-            spread = 0.0
+        windowed = Windowing(type="hamming", size=N_FFT)
+        current_fft = abs(fft(windowed(x)))[:N_FFT] / N_FFT
+        # extract features for current signal frame
         current_features = np.array([zcr(x)] +
-                                [energy(x)] +
-                                [energy_entropy(x)] +
-                                formant_frequencies(x, fs, lpc_a) +
-                                list(line_spectral_pairs(lpc_a)) +
-                                [centroid] +
-                                [spread] +
-                                [spectral_entropy(current_fft)] +
-                                [spectral_flux(current_fft, previous_fft)] +
-                                [spectral_roll_off(current_fft, 0.90, fs)] +
-                                list(st_mfcc(current_fft, filter_bank, n_mfcc)))
+                                    [energy(x)] +
+                                    formant_frequencies(x)[0].tolist() +
+                                    [centroid(x)] +
+                                    [entropy(current_fft)] +
+                                    [flux(current_fft)] +
+                                    [roll_off(current_fft)] +
+                                    mfcc(current_fft)[1][1:].tolist())
         # update feature matrix
         st_features[frame_count, :] = current_features[feature_mask]
-        previous_fft = current_fft
         frame_count += 1
 
     # TODO only compute the features necessary, according to the feature_mask.
     # Indexing afterwards is just a quick and dirty way to get the functionality.
-    return st_features
+    st_features[np.isnan(st_features) | np.isinf(st_features)] = 0.0
+    return normalize(st_features)
 
 
 def extract_from_file(filename, feature_mask):
     """
-    Extracts the "mid-term" features from a specified WAV file
+    Extracts the short-time features from the frames of a specified WAV file
     :param filename: WAV file path
     :param feature_mask: boolean mask to use for feature selection
     :return: features extracted from the file
@@ -202,7 +188,8 @@ def extract_from_dir(directory, feature_mask):
 
     # extract features from each file in the directory
     for i, wav_file in enumerate(wav_files):
-        print("{}/{}".format(i+1, n_wav_files))
+        if i % 20 == 0:
+            print("{}/{} in {}".format(i+1, n_wav_files, directory))
         [new_features, _] = extract_from_file(wav_file, feature_mask)
         sample_indices.append(sample_index)
         sample_index += new_features.shape[0]
@@ -210,4 +197,5 @@ def extract_from_dir(directory, feature_mask):
         file_name = os.path.basename(wav_file)
         class_labels += [file_name[:file_name.find("_")]] * new_features.shape[0]
     sample_indices.append(sample_index)
-    return np.vstack([m for m in feature_matrices]), np.unique(class_labels), wav_files, class_labels, sample_indices
+    features = np.vstack([m for m in feature_matrices])
+    return features, np.unique(class_labels), wav_files, class_labels, sample_indices
