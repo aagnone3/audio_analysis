@@ -1,13 +1,28 @@
+from __future__ import print_function
 import wave
-
+# ensure essentia imports occur before numpy import. for reasons un-investigated, importing numpy and then
+# anything from essentia causes a seg fault. This is likely an essentia bug.
+from essentia.standard import Resample, MonoLoader
 import numpy as np
 import pyaudio
 import scipy.io.wavfile as wav_file
+import environment
 
-from . import environment
-
-# Constants
+# standard representation of an sufficiently small, yet non-zero deviation
 EPSILON = 0.00000001
+# essentia function for re-sampling 44.1 kHz --> 16 kHz
+fs_audio_to_speech = Resample(inputSampleRate=44100, outputSampleRate=16000)
+
+
+def resample_speech(signal):
+    """
+    Re-samples the signal to 16 kHz for speech-related processing.
+    Assumes the passed signal was obtained via a 44.1 kHz sampling rate
+    :param signal: original signal
+    :return: signal re-sampled at 16 kHz
+    """
+    # invoke the predefined essentia 44.1 kHz --> 16 kHz re-sampling function
+    return fs_audio_to_speech(signal)
 
 
 def play_file(path_to_file, frame_size=1024):
@@ -15,7 +30,7 @@ def play_file(path_to_file, frame_size=1024):
     Plays a WAV file through the standard output stream.
     :param path_to_file: path to the audio file
     :param frame_size: size of audio frame to output to each data request from the stream
-    :return:
+    :return: None
     """
     # open file and read initial data
     wf = wave.open(path_to_file, 'rb')
@@ -39,11 +54,10 @@ def play_file(path_to_file, frame_size=1024):
     p.terminate()
 
 
-def read_audio_file(path, mono=True):
+def read_audio_file(path):
     """
-    Reads in an audio file and returns a numpy array of the data.
+    Reads in an audio file and returns an essentia (numpy float64) array of the data.
     :param path: path to the audio file
-    :param mono: whether to convert the audio to stereo
     :return: audio data and its sampling rate
     """
     # Currently only supports .wav files
@@ -51,11 +65,7 @@ def read_audio_file(path, mono=True):
     if extension != '.wav':
         raise NotImplementedError("read_audio_file() currently only supports .wav files, not %s" % extension)
 
-    [fs, x] = wav_file.read(path)
-    if mono:
-        x = stereo2mono(x)
-
-    return fs, x
+    return 16000, MonoLoader(filename=path, sampleRate=16000)()
 
 
 def frame_split(signal, fs=None, ms_size=None, ms_shift=None):
