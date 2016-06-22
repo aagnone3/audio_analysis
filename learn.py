@@ -4,30 +4,27 @@ Created on Wed Apr 06 16:55:34 2016
 
 @author: aagnone3
 """
-
+from __future__ import print_function
 import csv
 import glob
 import logging
 import os
 import pickle
-
+from learning.classification import AudioClassifier, GMMAudioClassifier
+from common import environment
 import numpy as np
 import pandas as pd
 from sklearn.svm import SVC
 from sklearn import mixture
 from sklearn.naive_bayes import GaussianNB
 
-from learning.classification import AudioClassifier, GMMAudioClassifier
-from common import environment
-
 # load feature masks and their names
-FEATURE_MASKS = np.array([False, False, False, False, False, False, False, False, False,
-                          False, False, False, False, False, False, False, False, False,
-                          True,  True,  True,  True,  True,  True,  True,  True])
-FEATURE_MASK_NAMES = ["Only 7 MFCC"]
+FEATURE_MASK = np.array([False] * 22)
+FEATURE_MASK[-13:] = True
+FEATURE_MASK_NAME = ["Only 7 MFCC"]
 
 # data directories and paths
-DATA_DIR = os.sep.join(['res', 'data', 'speaker_small'])
+DATA_DIR = os.sep.join(['res', 'data', 'audio_classification'])
 TRAIN_DATA_DIR = os.sep.join([DATA_DIR, 'train'])
 TEST_DATA_DIR = os.sep.join([DATA_DIR, 'test'])
 
@@ -48,10 +45,11 @@ def main():
     print("Training file counts {}".format(train_file_counts))
 
     keyword = 'Test'
+    algorithm = "audio_classification"
     paths = {
-        'model': os.sep.join(['res', 'models', 'gnb_speaker_recognition']),
-        'train_results': os.sep.join(['res', 'results', 'gnb_speaker_recognition_train.csv']),
-        'test_results': os.sep.join(['res', 'results', 'gnb_speaker_recognition_test.csv']),
+        'model': os.sep.join(['res', 'models', algorithm]),
+        'train_results': os.sep.join(['res', 'results', algorithm + '_train.csv']),
+        'test_results': os.sep.join(['res', 'results', algorithm + '_test.csv']),
         'train_data': os.sep.join(['res', 'features', '']) + 'TrainData_' + keyword + '.pkl',
         'test_data': os.sep.join(['res', 'features', '']) + 'TestData_' + keyword + '.pkl'
     }
@@ -59,7 +57,8 @@ def main():
     print("Testing file counts {}".format(test_file_counts))
 
     # learner = mixture.GMM(n_components=len(TRAINING_DIRS))
-    learner = GaussianNB()
+    # learner = GaussianNB()
+    learner = SVC()
     fresh_train_test(paths, learner)
     # modified_train_test(paths, learner)
 
@@ -72,18 +71,18 @@ def modified_train_test(paths, learner):
     :return: None
     """
     data = pd.DataFrame([])
-    for i, mask in enumerate(FEATURE_MASKS):
-        AudioClassifier(learner).train_model(TRAIN_DATA_DIR, paths['model'],
-                                             load_features_from=paths['train_data'],
-                                             feature_mask=mask)
-        [y_predict, y_actual] = AudioClassifier.test_model(classifier=AudioClassifier.load_model(paths['model']),
-                                                           load_features_from=paths['test_data'],
-                                                           feature_mask=mask)
-        results, columns = analyze_test_results(y_predict, y_actual, paths['results'])
-        percents = np.reshape(results['percents'], (1, -1))
-        data = data.append(pd.DataFrame(percents))
+    AudioClassifier(learner).train_model(TRAIN_DATA_DIR, paths['model'],
+                                         load_features_from=paths['train_data'],
+                                         feature_mask=FEATURE_MASK)
+    [y_predict, y_actual] = AudioClassifier.test_model(classifier=AudioClassifier.load_model(paths['model']),
+                                                       load_features_from=paths['test_data'],
+                                                       feature_mask=FEATURE_MASK)
+    results, columns = analyze_test_results(y_predict, y_actual, paths['results'])
+    percents = np.reshape(results['percents'], (1, -1))
+
+    data = data.append(pd.DataFrame(percents))
     data.columns = columns
-    data.index = pd.Index(FEATURE_MASK_NAMES)
+    data.index = pd.Index(FEATURE_MASK_NAME)
     data.to_csv(os.sep.join(['res', 'results', 'results.csv']))
 
 
@@ -96,14 +95,15 @@ def fresh_train_test(paths, learner):
     :return: None
     """
     classifier = AudioClassifier(learner)
-    [y_predict, y_actual] = classifier.train_model(TRAIN_DATA_DIR, paths['model'],
-                                                   feature_mask=FEATURE_MASKS[0],
+    [y_predict, y_actual] = classifier.train_model(TRAIN_DATA_DIR,
+                                                   new_model_name=paths['model'],
+                                                   feature_mask=FEATURE_MASK,
                                                    save_features_to=paths['train_data'])
     analyze_test_results(y_predict, y_actual, paths['train_results'])
     [y_predict, y_actual] = AudioClassifier.test_model(classifier=AudioClassifier.load_model(paths['model']),
                                                        test_files_directory=TEST_DATA_DIR,
                                                        save_features_to=paths['test_data'],
-                                                       feature_mask=FEATURE_MASKS[0])
+                                                       feature_mask=FEATURE_MASK)
     analyze_test_results(y_predict, y_actual, paths['test_results'])
 
 
@@ -129,6 +129,7 @@ def analyze_test_results(y_predict, y_actual, results_file_name):
     :param results_file_name: path to use for saving off results
     :return: None
     """
+    environment.print_lines(1)
     columns = ['Overall Accuracy (%)']
     metrics = {
         'percents': [100.0 * np.mean(y_predict == y_actual)],
@@ -146,7 +147,7 @@ def analyze_test_results(y_predict, y_actual, results_file_name):
             writer.writerow([y_predict[i], y_actual[i]])
         csv_file.close()
     for i, percent in enumerate(metrics['percents']):
-        print('%s:\t\t%f\t\t%i/%i' % (columns[i], percent, metrics['partials'][i], metrics['wholes'][i]))
+        print("{:22}:\t\t{:6.2f} %\t\t{:2d}/{:2d}".format(columns[i], percent, metrics['partials'][i], metrics['wholes'][i]))
     return metrics, columns
 
 
