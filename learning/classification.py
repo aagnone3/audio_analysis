@@ -1,12 +1,12 @@
+from __future__ import print_function
+
 import os
 import pickle
-
+from features import extraction as fe
 import numpy as np
 import pandas as pd
 from sklearn.neighbors import KNeighborsClassifier
 from scipy import stats
-
-from features import extraction as fe
 
 
 class AudioClassifier:
@@ -27,10 +27,17 @@ class AudioClassifier:
         :param feature_mask: boolean mask for feature selection
         :return: None
         """
-        [feature_matrices, self.class_names, _, self.frame_labels,
+        [self.train_features, self.class_names, _, self.frame_labels,
          self.sample_indices] = fe.extract_from_dir(directories, feature_mask)
-        self.train_features = fe.normalize(feature_matrices)
         self.feature_names = fe.FEATURE_NAMES[feature_mask]
+
+    def predict(self, x):
+        """
+        Invoke the sklearn-style predict() on the internal learner
+        :param x: features to use for prediction
+        :return: predicted class label
+        """
+        return self.inner_learner.predict(x)
 
     def train_model(self, directories, new_model_name, load_features_from=None,
                     feature_mask=None, save_features_to=None):
@@ -63,10 +70,9 @@ class AudioClassifier:
         for i in range(len(self.sample_indices)-1):
             beg = self.sample_indices[i]
             end = self.sample_indices[i+1]
+            labels.append(self.frame_labels[beg])
             frame_predictions = self.inner_learner.predict(self.train_features[beg:end, :])
             self.train_predictions.append(stats.mode(frame_predictions).mode[0])
-            labels.append(self.frame_labels[beg])
-        print('Training accuracy: {}'.format(100 * np.mean(labels == self.train_predictions)))
         # Save the training data to a pickle
         self.save_model(new_model_name, self)
         return np.array(self.train_predictions), np.array(labels)
@@ -101,16 +107,8 @@ class AudioClassifier:
             end = sample_indices[i+1]
             frame_predictions = classifier.predict(test_features[beg:end, :])
             predictions.append(stats.mode(frame_predictions).mode[0])
-            labels.append(frame_labels[i])
+            labels.append(frame_labels[beg])
         return np.array(predictions), np.array(labels)
-
-    def predict(self, x):
-        """
-        Invoke the sklearn-style predict() on the internal learner
-        :param x: features to use for prediction
-        :return: predicted class label
-        """
-        return self.inner_learner.predict(x)
 
     @staticmethod
     def classify_file(classifier, filename, feature_mask=None):
@@ -122,7 +120,6 @@ class AudioClassifier:
         :return: class label prediction for specified audio file
         """
         [features, _] = fe.extract_from_file(filename, feature_mask)
-        # TODO normalize
         return classifier.predict(features)
 
     @staticmethod
@@ -132,14 +129,13 @@ class AudioClassifier:
         :param model_name: name of model to load, without the ".model" extension
         :return: loaded model
         """
-        classifier = None
         try:
             # Load data from the stored pickle file
             with open(model_name + ".model", "rb") as fh:
                 classifier = pickle.load(fh)
+            return classifier
         except IOError:
             raise Exception('Could not find model file to load: ' + model_name)
-        return classifier
 
     @staticmethod
     def save_model(model_name, classifier):
@@ -168,7 +164,7 @@ class GMMAudioClassifier(AudioClassifier):
         :param feature_mask: boolean mask for feature selection
         :return: class label prediction for specified audio file
         """
-        return super().classify_file(classifier, filename, feature_mask)[0]
+        return AudioClassifier.classify_file(classifier, filename, feature_mask)[0]
 
     def train_model(self, directories, new_model_name, load_features_from=None, feature_mask=None, save_features_to=None):
         """
