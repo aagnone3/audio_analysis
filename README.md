@@ -15,6 +15,8 @@ Digital signal processing theory can get dry, but its applications are numerous 
 
 Clone and run! This project has not matured enough to have a formal installation process.
 
+This package uses the [Essentia](https://github.com/MTG/essentia) C++ audio feature extraction library under the hood, which necessitates Python 2 as the driver.
+
 # Visualization Snapshot
 
 ![Visualization Screenshot]
