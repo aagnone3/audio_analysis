@@ -33,7 +33,6 @@ def resample_signal(signal, current_fs, desired_fs):
     :param desired_fs: desired sampling frequency of signal
     :return: signal re-sampled at 16 kHz
     """
-    # invoke the predefined essentia 44.1 kHz --> 16 kHz re-sampling function
     converter = Resample(inputSampleRate=current_fs, outputSampleRate=desired_fs)
     return converter(signal)
 
