@@ -1,28 +1,41 @@
 from __future__ import print_function
 import wave
-# ensure essentia imports occur before numpy import. for reasons un-investigated, importing numpy and then
+# ensure essentia imports occur before numpy imports. for reasons un-investigated, importing numpy and then
 # anything from essentia causes a seg fault. This is likely an essentia bug.
-from essentia.standard import Resample, MonoLoader
+from essentia.standard import Resample, MonoLoader, MonoWriter
 import numpy as np
 import pyaudio
-import scipy.io.wavfile as wav_file
 import environment
 
 # standard representation of an sufficiently small, yet non-zero deviation
 EPSILON = 0.00000001
-# essentia function for re-sampling 44.1 kHz --> 16 kHz
-fs_audio_to_speech = Resample(inputSampleRate=44100, outputSampleRate=16000)
 
 
-def resample_speech(signal):
+def resample_audio_file(path, desired_fs):
+    """
+    Re-samples the audio file to the desired sampling rate.
+    This overwrites the existing file.
+    :param path: path to the existing file.
+    :param desired_fs: desired sampling rate for the new audio file.
+    :return: None
+    """
+    load = MonoLoader(filename=path, sampleRate=desired_fs)
+    write = MonoWriter(filename=path, format="wav", sampleRate=desired_fs)
+    write(load())
+
+
+def resample_signal(signal, current_fs, desired_fs):
     """
     Re-samples the signal to 16 kHz for speech-related processing.
     Assumes the passed signal was obtained via a 44.1 kHz sampling rate
     :param signal: original signal
+    :param current_fs: current sampling frequency of signal
+    :param desired_fs: desired sampling frequency of signal
     :return: signal re-sampled at 16 kHz
     """
     # invoke the predefined essentia 44.1 kHz --> 16 kHz re-sampling function
-    return fs_audio_to_speech(signal)
+    converter = Resample(inputSampleRate=current_fs, outputSampleRate=desired_fs)
+    return converter(signal)
 
 
 def play_file(path_to_file, frame_size=1024):
@@ -54,10 +67,11 @@ def play_file(path_to_file, frame_size=1024):
     p.terminate()
 
 
-def read_audio_file(path):
+def read_audio_file(path, desired_fs):
     """
     Reads in an audio file and returns an essentia (numpy float64) array of the data.
     :param path: path to the audio file
+    :param desired_fs: desired sampling frequency of the returned signal
     :return: audio data and its sampling rate
     """
     # Currently only supports .wav files
@@ -65,7 +79,7 @@ def read_audio_file(path):
     if extension != '.wav':
         raise NotImplementedError("read_audio_file() currently only supports .wav files, not %s" % extension)
 
-    return 16000, MonoLoader(filename=path, sampleRate=16000)()
+    return np.array(MonoLoader(filename=path, sampleRate=desired_fs)())
 
 
 def frame_split(signal, fs=None, ms_size=None, ms_shift=None):
@@ -79,7 +93,7 @@ def frame_split(signal, fs=None, ms_size=None, ms_shift=None):
     :return: numpy array of frames of the signal
     """
     if isinstance(signal, str):
-        [fs, x] = read_audio_file(signal)
+        x = read_audio_file(signal, fs)
     else:
         if fs is None:
             raise AttributeError("Must specify fs if passing pre-loaded audio data to frame_split()")

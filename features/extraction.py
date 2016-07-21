@@ -166,7 +166,8 @@ def extract_from_file(filename, feature_mask):
     :param feature_mask: boolean mask to use for feature selection
     :return: features extracted from the file
     """
-    [fs, x] = read_audio_file(filename)
+    fs = 16000
+    x = read_audio_file(filename, fs)
     features = st_feature_extraction(x, fs, feature_mask)
     return features, fs
 

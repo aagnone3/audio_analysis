@@ -1,26 +1,26 @@
 # -*- coding: utf-8 -*-
+from common.audio import read_audio_file
 import wave
-
-import numpy as np
 import pyaudio
 import pyqtgraph as pg
-from numpy.fft import fftfreq, fft, fftshift
 from pyqtgraph.Qt import QtGui
-
-from common.audio import read_audio_file
 from visualization.widgets import SpectrogramWidget
+import numpy as np
+from numpy.fft import fftfreq, fft, fftshift
 
 # constants
 WINDOW_SIZE = 1024
+N_FRAME_DISPLAY = 100
 WINDOW = np.hamming(WINDOW_SIZE)
 
 # open files and read initial data
 ind = 0
-path_to_file = "res/audio/apollo.wav"
+# path_to_file = "res/data/simple_audio/16khz/5_second_beep.wav"
+path_to_file = "res/data/simple_audio/illenium_afterlife.wav"
 p = pyaudio.PyAudio()
 wf = wave.open(path_to_file, 'rb')
-[fs, wave_values] = read_audio_file(path_to_file)
-wave_values = np.array(wave_values)
+fs = wf.getframerate()
+wave_values = read_audio_file(path_to_file, fs)
 fft_frequencies = fs * fftshift(fftfreq(WINDOW_SIZE))
 
 # set up plot(s)
@@ -35,16 +35,20 @@ cw.setLayout(layout)
 # initialize frequency domain plot
 spectrum_plot_widget = pg.PlotWidget()
 layout.addWidget(spectrum_plot_widget)
+
 # spectrum_plot.hideAxis('left')
 spectrum_plot_widget.setLabel('bottom', text='Frequency')
+
 # spectrum_plot_widget.getPlotItem().setRange(yRange=[0, 50 * wave_values.max()])
 spectrum_curve = spectrum_plot_widget.plot([])
+
 # initialize time domain plot
 time_plot_widget = pg.PlotWidget()
 layout.addWidget(time_plot_widget)
 time_curve = time_plot_widget.plot([])
+
 # initialize spectrogram plot
-spectrogram = SpectrogramWidget(WINDOW_SIZE, fs)
+spectrogram = SpectrogramWidget(WINDOW_SIZE, N_FRAME_DISPLAY, fs)
 layout.addWidget(spectrogram)
 
 win.show()
@@ -75,7 +79,7 @@ def callback(in_data, frame_count, time_info, status):
     # spectrum_curve.setData(fft_frequencies, 20*np.log10(fft_frame))
 
     # update time domain signal
-    start = max(0, pos - 100*frame_count)
+    start = max(0, pos - N_FRAME_DISPLAY * frame_count)
     end = pos
     time_curve.setData(wave_values[start:end])
 
@@ -102,7 +106,9 @@ while stream.is_active():
 # stop and close the stream
 stream.stop_stream()
 stream.close()
+
 # close the wave file
 wf.close()
+
 # close PyAudio
 p.terminate()
