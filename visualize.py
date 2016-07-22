@@ -16,7 +16,7 @@ WINDOW = np.hamming(WINDOW_SIZE)
 # open files and read initial data
 ind = 0
 # path_to_file = "res/data/simple_audio/16khz/5_second_beep.wav"
-path_to_file = "res/data/simple_audio/illenium_afterlife.wav"
+path_to_file = "res/data/simple_audio/16khz/kaskade_we_dont_stop.wav"
 p = pyaudio.PyAudio()
 wf = wave.open(path_to_file, 'rb')
 fs = wf.getframerate()

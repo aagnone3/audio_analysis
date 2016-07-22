@@ -1,6 +1,7 @@
 # python imports
 from __future__ import print_function
 import os
+import pickle
 import glob
 # third-party application imports
 from essentia.standard import Centroid, Flux, LPC, Windowing, ZeroCrossingRate, Energy, Entropy, RollOff, \
@@ -17,30 +18,6 @@ WINDOW_SPECS = {
     'st_win': 1,
     'st_step': 0.5
 }
-FEATURE_NAMES = np.array([
-    'Short-Time ZCR',
-    'Short-Time Energy',
-    'Formant 1',
-    'Formant 2',
-    'Formant 3',
-    'Formant 4',
-    'Spectral Centroid',
-    'Spectral Entropy',
-    'Spectral Flux',
-    'Spectral Roll-Off',
-    'MFCC Coefficient 2',
-    'MFCC Coefficient 3',
-    'MFCC Coefficient 4',
-    'MFCC Coefficient 5',
-    'MFCC Coefficient 6',
-    'MFCC Coefficient 7',
-    'MFCC Coefficient 8',
-    'MFCC Coefficient 9',
-    'MFCC Coefficient 10',
-    'MFCC Coefficient 11',
-    'MFCC Coefficient 12',
-    'MFCC Coefficient 13',
-])
 N_FFT = 1024
 N_FORMANT = 4
 N_LPC = 6
@@ -60,34 +37,37 @@ mfcc = MFCC(sampleRate=FS, inputSize=N_FFT, numberBands=40, numberCoefficients=N
             lowFrequencyBound=0, highFrequencyBound=8000)
 
 
-def load_data(model_name, column_indexes):
+def load_data(path):
     """
     Loads in data from the file specified, with only the columns specified by the
     column_indexes boolean mask. This supports the loading of custom features.
-    :param model_name: Filename (no extension) where the model pickle is located
-    :param column_indexes: Boolean mask of matrix columns to include
+    :param path: Filename (no extension) where the model pickle is located
     :return: Loaded data set, indexed accordingly
     """
-    all_data = pd.read_pickle(model_name)
-    features = all_data.iloc[:, :-1].as_matrix()
-    features = features[:, column_indexes]
-    labels = all_data.iloc[:, -1].as_matrix()
-    return features, labels
+    with open(path, 'r') as fin:
+        all_data = pickle.load(fin)
+        features = all_data.iloc[:, :-1].as_matrix()
+        labels = all_data.iloc[:, -1].as_matrix()
+        frame_indices = pickle.load(fin)
+
+    return features, labels, frame_indices
 
 
-def save_data(path, features, feature_names, labels):
+def save_data(path, features, labels, frame_indices):
     """
     Saves data to the file specified, with only the columns specified by the
     column_indexes boolean mask. This supports the saving of custom features.
-    :param path: Filename (no extension) where the model pickle is located
-    :param features: Feature matrix
-    :param feature_names: Feature/column names for the data set
-    :param labels: Output labels for each entry in the matrix
+    :param path: ilename (no extension) where the model pickle is located
+    :param features: feature matrix
+    :param labels: output labels for each entry in the matrix
+    :param frame_indices: indices indicating the start of each frame
     """
-    all_data = pd.DataFrame(features, columns=feature_names)
+    all_data = pd.DataFrame(features)
     labels = pd.DataFrame(labels, columns=['Class Label'])
     all_data = pd.concat((all_data, labels), axis=1)
-    pd.to_pickle(all_data, path)
+    with open(path, 'w') as fout:
+        pickle.dump(all_data, fout)
+        pickle.dump(frame_indices, fout)
 
 
 def normalize(features):
@@ -102,13 +82,12 @@ def normalize(features):
     return res
 
 
-def st_feature_extraction(signal, fs, feature_mask):
+def st_feature_extraction(signal, fs):
     """
     Extracts short-time features from a signal by framing.
     Enhanced from pyAudioAnalysis library https://github.com/tyiannak/pyAudioAnalysis.
     :param signal: signal to extract features from
     :param fs: digital sampling frequency
-    :param feature_mask: boolean mask for feature selection
     :return: numpy feature array of shape (n_features x n_frames)
     """
     window_size = int(round(WINDOW_SPECS['st_win'] * fs))
@@ -128,7 +107,7 @@ def st_feature_extraction(signal, fs, feature_mask):
 
     # compute the filter banks used for MFCC computation
     n_frames = int(signal_length / window_step)
-    n_features = len(feature_mask[feature_mask])
+    n_features = 22
     st_features = np.empty(shape=(n_frames, n_features), dtype=np.float64)
 
     # frame-by-frame processing of the signal
@@ -150,53 +129,56 @@ def st_feature_extraction(signal, fs, feature_mask):
                                     [roll_off(current_fft)] +
                                     mfcc(current_fft)[1][1:].tolist())
         # update feature matrix
-        st_features[frame_count, :] = current_features[feature_mask]
+        # TODO only compute the features necessary, according to the feature_mask.
+        st_features[frame_count, :] = current_features
         frame_count += 1
 
-    # TODO only compute the features necessary, according to the feature_mask.
-    # Indexing afterwards is just a quick and dirty way to get the functionality.
+    # zero out bad data points
+    # TODO be smarter than this
     st_features[np.isnan(st_features) | np.isinf(st_features)] = 0.0
     return normalize(st_features)
 
 
-def extract_from_file(filename, feature_mask):
+def extract_from_file(filename):
     """
     Extracts the short-time features from the frames of a specified WAV file
     :param filename: WAV file path
-    :param feature_mask: boolean mask to use for feature selection
     :return: features extracted from the file
     """
     fs = 16000
     x = read_audio_file(filename, fs)
-    features = st_feature_extraction(x, fs, feature_mask)
+    features = st_feature_extraction(x, fs)
     return features, fs
 
 
-def extract_from_dir(directory, feature_mask):
+def extract_from_dir(directory):
     """
     Extracts features from a list of directories
     :param directory: list of directories to extract audio features from
-    :param feature_mask: boolean mask for feature selection
-    :return:
+    :return: tuple (4,)
+        [0] feature matrix
+        [1] unique class labels
+        [2] per frame class labels
+        [3] indices for the start of each frame
     """
     # pre-allocation
     wav_files = sorted(glob.glob(os.sep.join((directory, "*.wav"))))
     n_wav_files = len(wav_files)
-    feature_matrices = []
+    frame_feature_matrices = []
     class_labels = []
-    sample_indices = []
+    frame_indices = []
     sample_index = 0
 
     # extract features from each file in the directory
     for i, wav_file in enumerate(wav_files):
         if i % 20 == 0:
             print("{}/{} in {}".format(i+1, n_wav_files, directory))
-        [new_features, _] = extract_from_file(wav_file, feature_mask)
-        sample_indices.append(sample_index)
+        [new_features, _] = extract_from_file(wav_file)
+        frame_indices.append(sample_index)
         sample_index += new_features.shape[0]
-        feature_matrices.append(new_features)
+        frame_feature_matrices.append(new_features)
         file_name = os.path.basename(wav_file)
         class_labels += [file_name[:file_name.find("_")]] * new_features.shape[0]
-    sample_indices.append(sample_index)
-    features = np.vstack([m for m in feature_matrices])
-    return features, np.unique(class_labels), wav_files, class_labels, sample_indices
+    frame_indices.append(sample_index)
+    feature_matrix = np.vstack([m for m in frame_feature_matrices])
+    return feature_matrix, np.unique(class_labels), class_labels, frame_indices
