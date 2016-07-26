@@ -1,6 +1,6 @@
 # Audio Analysis with Python
 
-These scripts and modules form a simple, yet somewhat scalable approach to audio analysis with Python. The modules are organized as follows:
+These scripts and modules form a simple, yet somewhat scalable approach to audio analysis with Python 2. The modules are organized as follows:
 - common: functionality shared by the other modules
 - features: audio feature extraction
 - learning: using machine learning to generalize to future audio
@@ -9,13 +9,24 @@ These scripts and modules form a simple, yet somewhat scalable approach to audio
 
 # Motivation
 
-Digital signal processing theory can get dry, but its applications are numerous and exciting!
+Digital signal processing theory can get dry, but its applications are numerous, immersive, and exciting!
 
 # Installation
 
-Clone and run! This project has not matured enough to have a formal installation process.
+This package uses the [Essentia](https://github.com/MTG/essentia) C++ audio feature extraction library under the hood, which necessitates Python 2 as the driver. Ensure that you have [Essentia](https://github.com/MTG/essentia) installed before proceeding.
 
-This package uses the [Essentia](https://github.com/MTG/essentia) C++ audio feature extraction library under the hood, which necessitates Python 2 as the driver.
+For basic visualization, clone and run! There is sample audio included with the project.
+
+For machine learning applications, run the following bash commands to obtain train and test data:
+
+```sh
+cd setup
+sh check_directory_structure.sh
+```
+
+Machine Learning Data Sources:
+- [ELSDSR](http://www2.imm.dtu.dk/~lfen/elsdsr/)
+- (Soon) [TIMIT](https://catalog.ldc.upenn.edu/LDC93S1)
 
 # Visualization Snapshot
 
@@ -24,7 +35,7 @@ This package uses the [Essentia](https://github.com/MTG/essentia) C++ audio feat
 
 # API Reference
 
-Coming soon, to a RESTful stop near you!
+Coming soon, as the project grows!
 
 ## Contributors
 
