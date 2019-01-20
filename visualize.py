@@ -1,12 +1,13 @@
 # -*- coding: utf-8 -*-
-from common.audio import read_audio_file
 import wave
 import pyaudio
 import pyqtgraph as pg
-from pyqtgraph.Qt import QtGui
-from visualization.widgets import SpectrogramWidget
 import numpy as np
 from numpy.fft import fftfreq, fft, fftshift
+from pyqtgraph.Qt import QtGui
+
+import librosa
+from visualization.widgets import SpectrogramWidget
 
 # constants
 WINDOW_SIZE = 1024
@@ -20,7 +21,7 @@ path_to_file = "res/data/simple_audio/16khz/kaskade_we_dont_stop.wav"
 p = pyaudio.PyAudio()
 wf = wave.open(path_to_file, 'rb')
 fs = wf.getframerate()
-wave_values = read_audio_file(path_to_file, fs)
+wave_values, fs = librosa.load(path_to_file, fs)
 fft_frequencies = fs * fftshift(fftfreq(WINDOW_SIZE))
 
 # set up plot(s)
