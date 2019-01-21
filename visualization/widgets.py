@@ -44,7 +44,7 @@ class SpectrogramWidget(pg.PlotWidget):
 
         self.img_array = np.zeros((window_size, int(self.window_size/2+1)))
         self.img.setLookupTable(self._get_color_lut())
-        self.img.setLevels([-250, 0])
+        self.img.setLevels([-1000, 0])
 
         # setup the correct scaling for y-axis
         freq = np.arange((self.window_size/2)+1)/(float(self.window_size)/self.fs)
@@ -57,7 +57,8 @@ class SpectrogramWidget(pg.PlotWidget):
         self.show()
 
     def _get_color_lut(self):
-        colormap = cm.get_cmap("nipy_spectral")
+        # colormap = cm.get_cmap("nipy_spectral")
+        colormap = cm.get_cmap("gray")
         colormap._init()
         lut = (colormap._lut * 255).view(np.ndarray)
         return lut
