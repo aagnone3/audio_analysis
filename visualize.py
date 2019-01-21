@@ -1,23 +1,18 @@
 import os
 import sys
+import yaml
 import numpy as np
 import pyqtgraph as pg
 from pyqtgraph.Qt import QtGui, QtCore
 from PyQt5.QtWidgets import QDesktopWidget
 from PyQt5.QtCore import QObject
 
-from visualization.widgets import (
+from display.widgets import (
     SpectrogramWidget,
     SpectralFrameWidget
 )
 from samplers import Microphone
-from constants import (
-    FRAME_SIZE,
-    N_FRAME_DISPLAY,
-    WINDOW,
-    FS,
-    FFT_FREQS
-)
+from sigproc import get_frame_size
 
 
 class Observer(QObject):
@@ -46,17 +41,24 @@ def init_gui():
     return app, win, layout
 
 
+def get_config():
+    with open("config.yml", 'r') as fp:
+        cfg = yaml.load(fp)
+    return cfg
+
+
 def main():
     app, win, layout = init_gui()
+    cfg = get_config()
 
     # initialize plotting widgets
-    spectral_frame_widget = SpectralFrameWidget()
-    spectrogram = SpectrogramWidget(FRAME_SIZE, N_FRAME_DISPLAY, FS)
+    spectral_frame_widget = SpectralFrameWidget(**cfg)
+    spectrogram = SpectrogramWidget(f_max=4000, **cfg)
 
     # set up data inter-communication signals
     observer = Observer()
     audio_update = observer.signal
-    mic = Microphone(audio_update)
+    mic = Microphone(audio_update, **cfg)
     audio_update.connect(spectrogram.update)
     audio_update.connect(spectral_frame_widget.update)
 
@@ -65,9 +67,9 @@ def main():
     layout.addWidget(spectrogram)
 
     # start sampling
-    interval = FS / FRAME_SIZE
+    interval = cfg["fs"] / get_frame_size(cfg["fs"], cfg["frame_size_ms"])
     ms_interval = 1000.0 / interval
-    print("Sampling at sr={}, audio fps={:.3f}, timer interval={:.1f}ms".format(FS, interval, ms_interval))
+    print("Sampling at sr={}, audio fps={:.3f}, timer interval={:.1f}ms".format(cfg["fs"], interval, ms_interval))
     t = QtCore.QTimer()
     t.timeout.connect(mic.sample)
     t.start(1000 / interval)

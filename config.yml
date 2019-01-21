@@ -1,0 +1,6 @@
+n_channels: 1
+fs: 44100
+f_max_display: 8000
+nfft: 2048
+frame_size_ms: 50
+display_width_seconds: 20

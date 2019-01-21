@@ -1,3 +1,4 @@
 PyQtGraph
 PyQt5
 pyaudio
+PyYAML
